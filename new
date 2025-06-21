@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>极简版恐龙游戏</title>
+    <style>
+        body {
+            margin: 0;
+            background: #87CEEB;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        #game-container {
+            position: relative;
+        }
+        canvas {
+            background: #f0f0f0;
+            border: 3px solid #333;
+        }
+        #loading {
+            padding: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border-radius: 10px;
+            max-width: 400px;
+        }
+        #progress {
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #4CAF50;
+            transition: width 0.3s;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .instructions {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>恐龙跑酷</h1>
+        <canvas id="gameCanvas" width="600" height="300"></canvas>
+        
+        <div id="loading">
+            <h2>加载中...</h2>
+            <div id="progress">
+                <div id="progress-bar"></div>
+            </div>
+            <p id="progress-text">初始化中 (0%)</p >
+        </div>
+        
+        <div id="error" style="display:none; color:red; margin:10px;">
+            <p id="error-message"></p >
+            <button onclick="location.reload()">重新加载</button>
+        </div>
+        
+        <div class="instructions">
+            <p>空格键跳跃 | 手机点击右侧</p >
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <script>
+        // 更新进度条
+        function updateProgress(percent) {
+            const bar = document.getElementById('progress-bar');
+            const text = document.getElementById('progress-text');
+            bar.style.width = percent + '%';
+            text.textContent = `加载中 (${percent}%)`;
+        }
+
+        // 显示错误
+        function showError(msg) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error-message').textContent = msg;
+        }
+
+        // 初始化游戏
+        async function initGame() {
+            try {
+                updateProgress(10);
+                
+                // 加载Pyodide
+                window.pyodide = await loadPyodide();
+                updateProgress(30);
+                
+                // 加载Pygame
+                await pyodide.loadPackage("pygame");
+                updateProgress(60);
+                
+                // 运行游戏代码
+                updateProgress(80);
+                await pyodide.runPython(`
+                    import pygame
+                    import random
+                    
+                    # 初始化
+                    pygame.init()
+                    WIDTH, HEIGHT = 600, 300
+                    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+                    clock = pygame.time.Clock()
+                    
+                    # 游戏参数
+                    GROUND = HEIGHT - 50
+                    GRAVITY = 1
+                    JUMP_POWER = 18
+                    SPEED = 8
+                    
+                    # 玩家
+                    class Player:
+                        def __init__(self):
+                            self.x = 50
+                            self.y = GROUND - 40
+                            self.vel = 0
+                            self.jumping = False
+                            self.width = 40
+                            self.height = 40
+                        
+                        def jump(self):
+                            if not self.jumping:
+                                self.vel = -JUMP_POWER
+                                self.jumping = True
+                        
+                        def update(self):
+                            if self.jumping:
+                                self.y += self.vel
+                                self.vel += GRAVITY
+                                if self.y > GROUND - self.height:
+                                    self.y = GROUND - self.height
+                                    self.jumping = False
+                        
+                        def draw(self):
+                            pygame.draw.rect(screen, (0, 120, 255), 
+                                            (self.x, self.y, self.width, self.height))
+                    
+                    # 障碍物
+                    class Obstacle:
+                        def __init__(self):
+                            self.width = 30
+                            self.height = random.randint(30, 50)
+                            self.x = WIDTH
+                            self.y = GROUND - self.height
+                        
+                        def update(self):
+                            self.x -= SPEED
+                        
+                        def draw(self):
+                            pygame.draw.rect(screen, (139, 69, 19), 
+                                            (self.x, self.y, self.width, self.height))
+                        
+                        def collide(self, player):
+                            return (player.x < self.x + self.width and
+                                    player.x + player.width > self.x and
+                                    player.y < self.y + self.height and
+                                    player.y + player.height > self.y)
+                    
+                    # 游戏主循环
+                    player = Player()
+                    obstacles = []
+                    score = 0
+                    game_over = False
+                    running = True
+                    
+                    while running:
+                        # 事件处理
+                        for event in pygame.event.get():
+                            if event.type == pygame.QUIT:
+                                running = False
+                        
+                        # 玩家控制
+                        keys = pygame.key.get_pressed()
+                        if keys[pygame.K_SPACE]:
+                            player.jump()
+                        
+                        if not game_over:
+                            # 更新
+                            player.update()
+                            
+                            # 生成障碍物
+                            if random.random() < 0.02:
+                                obstacles.append(Obstacle())
+                            
+                            # 更新障碍物
+                            for obs in obstacles[:]:
+                                obs.update()
+                                if obs.x + obs.width < 0:
+                                    obstacles.remove(obs)
+                                elif obs.collide(player):
+                                    game_over = True
+                            
+                            # 计分
+                            score += 0.1
+                        
+                        # 绘制
+                        screen.fill((135, 206, 235))  # 天空蓝
+                        pygame.draw.rect(screen, (139, 69, 19), (0, GROUND, WIDTH, HEIGHT - GROUND))  # 地面
+                        
+                        for obs in obstacles:
+                            obs.draw()
+                        
+                        player.draw()
+                        
+                        # 显示分数
+                        font = pygame.font.SysFont(None, 36)
+                        score_text = font.render(f"分数: {int(score)}", True, (0, 0, 0))
+                        screen.blit(score_text, (10, 10))
+                        
+                        if game_over:
+                            over_text = font.render("游戏结束! 按R键重玩", True, (255, 0, 0))
+                            screen.blit(over_text, (WIDTH//2 - 120, HEIGHT//2 - 30))
+                        
+                        pygame.display.flip()
+                        clock.tick(60)
+                `);
+                
+                updateProgress(100);
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                }, 500);
+                
+            } catch (error) {
+                showError('加载失败: ' + error.message);
+            }
+        }
+        
+        // 启动游戏
+        window.onload = initGame;
+        
+        // 移动端触摸控制
+        document.getElementById('gameCanvas').addEventListener('click', (e) => {
+            const canvas = document.getElementById('gameCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            
+            // 右侧点击跳跃
+            if (clickX > canvas.width / 2) {
+                // 触发跳跃
+                console.log("跳跃");
+            }
+        });
+    </script>
+</body>
+</html>
